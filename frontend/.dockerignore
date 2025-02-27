@@ -1,2 +1,7 @@
+
 node_modules
 dist
+build
+.cache
+.DS_Store
+.git

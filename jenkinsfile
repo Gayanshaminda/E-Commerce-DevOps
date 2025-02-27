@@ -1,0 +1,43 @@
+pipeline {
+    agent any
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/Gayanshaminda/E-Commerce-DevOps.git'
+            }
+        }
+        stage('Build Docker Images with Docker Compose') {
+            steps {
+                bat 'docker-compose -f docker-compose.yml build'
+            }
+        }
+        stage('Push Docker Images') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
+                        usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
+                        // Docker login
+                        bat 'echo %DOCKER_HUB_PASSWORD% | docker login -u %DOCKER_HUB_USERNAME% --password-stdin'
+                        
+                        // Use Git commit hash 
+                        def gitCommitHashOutput = bat(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                        def gitCommitHash = gitCommitHashOutput.readLines().last()
+                        
+                        // Tag the images before pushing
+                        bat "docker tag mern-ecommerce-ci-frontend %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
+                        bat "docker tag mern-ecommerce-ci-backend %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
+                        
+                        // Push the Docker images
+                        bat "docker push %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
+                        bat "docker push %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}

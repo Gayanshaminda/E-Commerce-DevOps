@@ -5,7 +5,7 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - MONGO_URI=${MONGO_URI}
+      - MONGO_URI=mongodb+srv://wasakodi79:hPzPt5nYwhO0TXBJ@cluster1.qv9fx.mongodb.net/ecommerce_db?retryWrites=true&w=majority&appName=Cluster1
     networks:
       - app-network
     restart: unless-stopped

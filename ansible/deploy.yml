@@ -1,0 +1,49 @@
+- name: Deploy to EC2
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Update Packages
+      apt:
+        update_cache: yes
+
+    - name: Install Docker
+      apt:
+        name: docker.io
+        state: present
+
+    - name: Install Docker Compose (latest version)
+      shell: |
+        curl -L https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+        chmod +x /usr/local/bin/docker-compose
+
+    - name: Create app directory structure
+      file:
+        path: "{{ item }}"
+        state: directory
+      with_items:
+        - /home/ubuntu/app
+        - /home/ubuntu/app/backend
+        - /home/ubuntu/app/frontend
+    
+    - name: Copy backend directory
+      synchronize:
+        src: /mnt/d/MY PROJECTS/E-Commerce-DevOps/backend/
+        dest: /home/ubuntu/app/backend/
+        mode: push
+
+    - name: Copy frontend directory
+      synchronize:
+        src: /mnt/d/MY PROJECTS/E-Commerce-DevOps/frontend/
+        dest: /home/ubuntu/app/frontend/
+        mode: push
+
+    - name: Copy docker-compose.yml to EC2 instance
+      copy:
+        src: /mnt/d/MY PROJECTS/E-Commerce-DevOps/docker-compose.yml 
+        dest: /home/ubuntu/app/docker-compose.yml
+
+    - name: Run Docker Compose to deploy containers
+      shell: |
+        cd /home/ubuntu/app
+        docker-compose -f docker-compose.yml up -d
