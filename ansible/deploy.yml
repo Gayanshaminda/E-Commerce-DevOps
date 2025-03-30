@@ -1,74 +1,67 @@
-- name: Deploy to EC2
+---
+- name: Deploy E-Commerce Application to EC2
   hosts: all
   become: yes
   vars:
-    ansible_ssh_timeout: 60  # Set SSH timeout
+    ansible_ssh_timeout: 60
+    app_dir: "/home/ubuntu/app"
+    project_src: "{{ playbook_dir }}/.."  # Assumes playbook is in a subdirectory
+    
+  pre_tasks:
+    - name: Check if Docker is already installed
+      command: which docker
+      register: docker_check
+      ignore_errors: yes
+      changed_when: false
 
   tasks:
-
-    # Step 1: Update packages
-    - name: Update Packages
+    # Update packages and install dependencies
+    - name: Update package cache
       apt:
         update_cache: yes
       retries: 3
       delay: 5
-      register: update_result
-      until: update_result is success
+      until: true
+      when: docker_check.rc != 0
 
-    # Step 2: Install required dependencies for Docker installation
-    - name: Install required dependencies
+    - name: Install dependencies
       apt:
         name:
           - apt-transport-https
           - ca-certificates
           - curl
           - software-properties-common
+          - rsync
         state: present
       retries: 3
       delay: 5
-      register: install_deps
-      until: install_deps is success
+      until: true
+      when: docker_check.rc != 0
 
-    # Step 3: Add Docker's official GPG key
-    - name: Add Docker's official GPG key
+    # Install Docker using the official Docker installation script
+    - name: Install Docker using official script
       shell: |
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sh get-docker.sh
+      args:
+        creates: /usr/bin/docker
       retries: 3
       delay: 5
-      register: docker_key
-      until: docker_key is success
+      until: true
+      when: docker_check.rc != 0
 
-    # Step 4: Add Docker repository
-    - name: Add Docker repository
-      shell: |
-        add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-      retries: 3
-      delay: 5
-      register: add_docker_repo
-      until: add_docker_repo is success
-
-    # Step 5: Install Docker CE
-    - name: Install Docker CE
-      apt:
-        name: docker-ce
-        state: present
-      retries: 3
-      delay: 5
-      register: install_docker
-      until: install_docker is success
-
-    # Step 6: Install Docker Compose
+    # Install Docker Compose
     - name: Install Docker Compose
       get_url:
-        url: "https://github.com/docker/compose/releases/latest/download/docker-compose-{{ ansible_system }}-{{ ansible_machine }}"
+        url: "https://github.com/docker/compose/releases/latest/download/docker-compose-{{ ansible_system | lower }}-{{ ansible_architecture }}"
         dest: "/usr/local/bin/docker-compose"
         mode: '0755'
+        force: yes
       retries: 3
       delay: 5
-      register: install_compose
-      until: install_compose is success
+      until: true
 
-    # Step 7: Ensure Docker service is running
+    # Ensure Docker service is running
     - name: Ensure Docker service is running
       service:
         name: docker
@@ -76,41 +69,74 @@
         enabled: yes
       retries: 3
       delay: 5
-      register: docker_service
-      until: docker_service is success
+      until: true
 
-    # Step 8: Create directories for app
-    - name: Create app directories
+    # Create application directories
+    - name: Create application directories
       file:
         path: "{{ item }}"
         state: directory
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
       loop:
-        - /home/ubuntu/app
-        - /home/ubuntu/app/backend
-        - /home/ubuntu/app/frontend
+        - "{{ app_dir }}"
+        - "{{ app_dir }}/backend"
+        - "{{ app_dir }}/frontend"
 
-    # Step 9: Copy project files to EC2
-    - name: Copy backend directory
+    # Copy application files to EC2
+    - name: Copy backend files
       synchronize:
-        src: /mnt/d/MY PROJECTS/E-Commerce-DevOps/backend/
-        dest: /home/ubuntu/app/backend/
+        src: "{{ project_src }}/backend/"
+        dest: "{{ app_dir }}/backend/"
         mode: push
+        delete: yes  # Remove files on destination that are not on source
+      become: no  # Run as the ansible user, not root
 
-    - name: Copy frontend directory
+    - name: Copy frontend files
       synchronize:
-        src: /mnt/d/MY PROJECTS/E-Commerce-DevOps/frontend/
-        dest: /home/ubuntu/app/frontend/
+        src: "{{ project_src }}/frontend/"
+        dest: "{{ app_dir }}/frontend/"
         mode: push
+        delete: yes
+      become: no
 
-    - name: Copy docker-compose.yml file to EC2
+    - name: Copy docker-compose file
       copy:
-        src: /mnt/d/MY PROJECTS/E-Commerce-DevOps/docker-compose.yml
-        dest: /home/ubuntu/app/docker-compose.yml
+        src: "{{ project_src }}/docker-compose.yml"
+        dest: "{{ app_dir }}/docker-compose.yml"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
 
-    # Step 10: Run Docker Compose to deploy containers
-    - name: Run Docker Compose to deploy containers
-      community.docker.docker_compose_v2:
-        project_src: /home/ubuntu/app
-        state: present
-      retries: 3
-      delay: 5
+    # Clean up old Docker resources
+    - name: Remove unused Docker data
+      shell: docker system prune -af --volumes
+      register: docker_prune
+      changed_when: docker_prune.stdout.find('Total reclaimed space') != -1
+      ignore_errors: yes
+
+    # Deploy with Docker Compose
+    - name: Deploy with Docker Compose
+      shell: cd {{ app_dir }} && docker-compose down && docker-compose up -d
+      args:
+        chdir: "{{ app_dir }}"
+      register: docker_compose_output
+      changed_when: docker_compose_output.stdout.find('Creating') != -1 or docker_compose_output.stdout.find('Starting') != -1
+
+    # Verify deployment
+    - name: Check if containers are running
+      shell: docker ps | grep -E 'frontend_container|backend_container'
+      register: container_check
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Deployment status
+      debug:
+        msg: "Deployment successful! Containers are running."
+      when: container_check.rc == 0
+
+    - name: Deployment status
+      fail:
+        msg: "Deployment failed. Containers are not running properly."
+      when: container_check.rc != 0

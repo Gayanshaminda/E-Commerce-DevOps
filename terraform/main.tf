@@ -1,51 +1,46 @@
-provider "aws" {
-  region = "eu-north-1"
-}
-
 resource "aws_security_group" "ecommerce_sg" {
-  name        = "E-commerce-security-group-v2"
+  name        = "ecommerce-security-group"
   description = "Security group for E-Commerce app"
+  vpc_id      = aws_vpc.main.id
 
+  # SSH access - open to any IP address as requested
   ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "SSH access from anywhere"
   }
 
+  # Frontend access
   ingress {
     from_port   = 5173
     to_port     = 5173
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Frontend access"
   }
 
+  # Backend access
   ingress {
     from_port   = 5000
     to_port     = 5000
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Backend API access"
   }
 
+  # Outbound access
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound traffic"
   }
-}
-
-resource "aws_instance" "my_ec2" {
-  ami           = "ami-09a9858973b288bdd"
-  instance_type = "t3.micro"
-  key_name      = "E-commerece-key-pair"
-  security_groups = [aws_security_group.ecommerce_sg.name]
 
   tags = {
-    Name = "MyEC2Instance"
+    Name        = "ecommerce-sg"
+    Environment = var.environment
   }
-}
-
-output "ssh_command" {
-  value = "ssh -i ~/.ssh/E-commerece-key-pair.pem ubuntu@${aws_instance.my_ec2.public_ip}"
 }
