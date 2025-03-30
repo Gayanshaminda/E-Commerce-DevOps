@@ -16,7 +16,13 @@ pipeline {
         }
         stage('Build Docker Images with Docker Compose') {
             steps {
-                bat "docker-compose -f ${DOCKER_COMPOSE_FILE} build"
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
+                        usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
+                        def gitCommitHash = bat(script: 'git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
+                        bat "set DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% && set GIT_COMMIT_HASH=${gitCommitHash} && docker-compose -f ${DOCKER_COMPOSE_FILE} build"
+                    }
+                }
             }
         }
         stage('Push Docker Images') {
@@ -26,8 +32,6 @@ pipeline {
                         usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                         bat "echo %DOCKER_HUB_PASSWORD% | docker login -u %DOCKER_HUB_USERNAME% --password-stdin"
                         def gitCommitHash = bat(script: 'git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
-                        bat "docker tag mern-ecommerce-ci-frontend %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
-                        bat "docker tag mern-ecommerce-ci-backend %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
                         bat "docker push %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
                         bat "docker push %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
                     }
