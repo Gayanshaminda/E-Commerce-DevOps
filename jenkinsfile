@@ -6,6 +6,7 @@ pipeline {
         ANSIBLE_DIR = 'ansible'
         AWS_REGION = 'eu-north-1'
         EC2_IP = '51.20.34.253'
+        WORKSPACE = 'C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\E-Commerce-DevOps-Pipeline'
     }
     stages {
         stage('Checkout') {
@@ -15,7 +16,7 @@ pipeline {
         }
         stage('Build Docker Images with Docker Compose') {
             steps {
-                bat "wsl docker-compose -f ${DOCKER_COMPOSE_FILE} build"
+                bat "docker-compose -f ${DOCKER_COMPOSE_FILE} build"
             }
         }
         stage('Push Docker Images') {
@@ -23,12 +24,12 @@ pipeline {
                 script {
                     withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
                         usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
-                        bat "wsl bash -c \"echo %DOCKER_HUB_PASSWORD% | docker login -u %DOCKER_HUB_USERNAME% --password-stdin\""
-                        def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim()
-                        bat "wsl docker tag mern-ecommerce-ci-frontend %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
-                        bat "wsl docker tag mern-ecommerce-ci-backend %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
-                        bat "wsl docker push %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
-                        bat "wsl docker push %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
+                        bat "echo %DOCKER_HUB_PASSWORD% | docker login -u %DOCKER_HUB_USERNAME% --password-stdin"
+                        def gitCommitHash = bat(script: 'git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
+                        bat "docker tag mern-ecommerce-ci-frontend %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
+                        bat "docker tag mern-ecommerce-ci-backend %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
+                        bat "docker push %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
+                        bat "docker push %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
                     }
                 }
             }
@@ -40,8 +41,8 @@ pipeline {
                         credentialsId: 'aws-credentials', 
                         accessKeyVariable: 'AWS_ACCESS_KEY_ID', 
                         secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
-                        bat 'wsl terraform init'
-                        bat "wsl terraform apply -auto-approve -var=\"region=${AWS_REGION}\""
+                        bat "wsl terraform init"
+                        bat "wsl terraform apply -auto-approve -var=\\\"region=${AWS_REGION}\\\""
                     }
                 }
             }
@@ -55,8 +56,8 @@ pipeline {
                     usernamePassword(credentialsId: 'docker-hub-credentials', 
                         usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                         script {
-                            def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim()
-                            bat "wsl ansible-playbook -i inventory.ini deploy.yml -u %SSH_USER% --private-key %SSH_KEY% -e \"ansible_host=${EC2_IP} DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% GIT_COMMIT_HASH=${gitCommitHash}\""
+                            def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
+                            bat "wsl ansible-playbook -i inventory.ini deploy.yml -u %SSH_USER% --private-key %SSH_KEY% -e \\\"ansible_host=${EC2_IP} DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% GIT_COMMIT_HASH=${gitCommitHash}\\\""
                         }
                     }
                 }
@@ -66,7 +67,7 @@ pipeline {
     post {
         always {
             cleanWs()
-            bat 'wsl docker logout'
+            bat 'docker logout'
         }
     }
 }
