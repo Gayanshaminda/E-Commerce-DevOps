@@ -1,31 +1,65 @@
+---
 - name: Deploy to EC2
   hosts: all
   become: yes
   tasks:
 
+    # Step 1: Update packages
     - name: Update Packages
       apt:
         update_cache: yes
 
-    - name: Install Docker
+    # Step 2: Install required dependencies for Docker installation
+    - name: Install required dependencies
       apt:
-        name: docker.io
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
         state: present
 
-    - name: Install Docker Compose (latest version)
+    # Step 3: Add Docker's official GPG key
+    - name: Add Docker's official GPG key
       shell: |
-        curl -L https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
-        chmod +x /usr/local/bin/docker-compose
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
 
-    - name: Create app directory structure
+    # Step 4: Add Docker repository
+    - name: Add Docker repository
+      shell: |
+        add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+
+    # Step 5: Install Docker CE
+    - name: Install Docker CE
+      apt:
+        name: docker-ce
+        state: present
+
+    # Step 6: Install Docker Compose
+    - name: Install Docker Compose
+      get_url:
+        url: "https://github.com/docker/compose/releases/latest/download/docker-compose-{{ ansible_system }}-{{ ansible_machine }}"
+        dest: "/usr/local/bin/docker-compose"
+        mode: '0755'
+
+    # Step 7: Ensure Docker service is running
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    # Step 8: Create directories for app
+    - name: Create app directories
       file:
         path: "{{ item }}"
         state: directory
-      with_items:
+      loop:
         - /home/ubuntu/app
         - /home/ubuntu/app/backend
         - /home/ubuntu/app/frontend
-    
+
+    # Step 9: Copy project files to EC2
     - name: Copy backend directory
       synchronize:
         src: /mnt/d/MY PROJECTS/E-Commerce-DevOps/backend/
@@ -38,12 +72,13 @@
         dest: /home/ubuntu/app/frontend/
         mode: push
 
-    - name: Copy docker-compose.yml to EC2 instance
+    - name: Copy docker-compose.yml file to EC2
       copy:
-        src: /mnt/d/MY PROJECTS/E-Commerce-DevOps/docker-compose.yml 
+        src: /mnt/d/MY PROJECTS/E-Commerce-DevOps/docker-compose.yml
         dest: /home/ubuntu/app/docker-compose.yml
 
+    # Step 10: Run Docker Compose to deploy containers
     - name: Run Docker Compose to deploy containers
-      shell: |
-        cd /home/ubuntu/app
-        docker-compose -f docker-compose.yml up -d
+      community.docker.docker_compose:
+        project_src: /home/ubuntu/app
+        state: present
