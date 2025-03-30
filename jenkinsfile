@@ -1,5 +1,12 @@
 pipeline {
     agent any
+    environment {
+        DOCKER_COMPOSE_FILE = 'docker-compose.yml'
+        TERRAFORM_DIR = 'terraform'
+        ANSIBLE_DIR = 'ansible'
+        AWS_REGION = 'eu-north-1'
+        EC2_IP = '51.20.34.253'
+    }
     stages {
         stage('Checkout') {
             steps {
@@ -8,7 +15,7 @@ pipeline {
         }
         stage('Build Docker Images with Docker Compose') {
             steps {
-                bat 'docker-compose -f docker-compose.yml build'
+                sh "docker-compose -f ${DOCKER_COMPOSE_FILE} build"
             }
         }
         stage('Push Docker Images') {
@@ -16,20 +23,41 @@ pipeline {
                 script {
                     withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
                         usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
-                        // Docker login
-                        bat 'echo %DOCKER_HUB_PASSWORD% | docker login -u %DOCKER_HUB_USERNAME% --password-stdin'
-                        
-                        // Use Git commit hash 
-                        def gitCommitHashOutput = bat(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                        def gitCommitHash = gitCommitHashOutput.readLines().last()
-                        
-                        // Tag the images before pushing
-                        bat "docker tag mern-ecommerce-ci-frontend %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
-                        bat "docker tag mern-ecommerce-ci-backend %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
-                        
-                        // Push the Docker images
-                        bat "docker push %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
-                        bat "docker push %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
+                        sh "echo \$DOCKER_HUB_PASSWORD | docker login -u \$DOCKER_HUB_USERNAME --password-stdin"
+                        def gitCommitHash = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                        sh "docker tag mern-ecommerce-ci-frontend \$DOCKER_HUB_USERNAME/frontend:${gitCommitHash}"
+                        sh "docker tag mern-ecommerce-ci-backend \$DOCKER_HUB_USERNAME/backend:${gitCommitHash}"
+                        sh "docker push \$DOCKER_HUB_USERNAME/frontend:${gitCommitHash}"
+                        sh "docker push \$DOCKER_HUB_USERNAME/backend:${gitCommitHash}"
+                    }
+                }
+            }
+        }
+        stage('Terraform Infrastructure') {
+            steps {
+                dir(TERRAFORM_DIR) {
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', 
+                        credentialsId: 'aws-credentials', 
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID', 
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                        sh 'terraform init'
+                        sh "terraform apply -auto-approve -var=\"region=${AWS_REGION}\""
+                    }
+                }
+            }
+        }
+        stage('Ansible Deployment') {
+            steps {
+                dir(ANSIBLE_DIR) {
+                    withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', 
+                        keyFileVariable: 'SSH_KEY', 
+                        usernameVariable: 'SSH_USER'),
+                    usernamePassword(credentialsId: 'docker-hub-credentials', 
+                        usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
+                        script {
+                            def gitCommitHash = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                            sh "ansible-playbook -i inventory.ini deploy.yml -u \$SSH_USER --private-key \$SSH_KEY -e \"ansible_host=${EC2_IP} DOCKER_HUB_USERNAME=\$DOCKER_HUB_USERNAME GIT_COMMIT_HASH=${gitCommitHash}\""
+                        }
                     }
                 }
             }
@@ -38,6 +66,7 @@ pipeline {
     post {
         always {
             cleanWs()
+            sh 'docker logout'
         }
     }
 }

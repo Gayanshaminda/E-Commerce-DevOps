@@ -1,6 +1,7 @@
+
 services:
   backend:
-    build: ./backend
+    image: "${DOCKER_HUB_USERNAME}/backend:${GIT_COMMIT_HASH}"
     container_name: backend_container
     ports:
       - "5000:5000"
@@ -11,7 +12,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    image: "${DOCKER_HUB_USERNAME}/frontend:${GIT_COMMIT_HASH}"
     container_name: frontend_container
     ports:
       - "5173:5173"

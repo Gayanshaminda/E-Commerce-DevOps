@@ -5,8 +5,8 @@
   vars:
     ansible_ssh_timeout: 120  # Increased timeout
     app_dir: "/home/ubuntu/app"
-    project_src: "{{ playbook_dir }}/.."  # Assumes playbook is in a subdirectory
-    
+    project_src: "{{ playbook_dir }}/.."  # Assumes playbook is in ansible/
+
   pre_tasks:
     - name: Check if Docker is already installed
       command: which docker
@@ -31,14 +31,13 @@
           - ca-certificates
           - curl
           - software-properties-common
-          - rsync
         state: present
       retries: 3
       delay: 5
       until: true
       when: docker_check.rc != 0
 
-    # Install Docker using the official Docker installation script
+    # Install Docker using the official script
     - name: Install Docker using official script
       shell: |
         curl -fsSL https://get.docker.com -o get-docker.sh
@@ -48,6 +47,14 @@
       retries: 3
       delay: 5
       until: true
+      when: docker_check.rc != 0
+
+    # Add ubuntu user to docker group (for non-root access)
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
       when: docker_check.rc != 0
 
     # Install Docker Compose
@@ -71,36 +78,16 @@
       delay: 5
       until: true
 
-    # Create application directories
-    - name: Create application directories
+    # Create application directory
+    - name: Create application directory
       file:
-        path: "{{ item }}"
+        path: "{{ app_dir }}"
         state: directory
         mode: '0755'
         owner: ubuntu
         group: ubuntu
-      loop:
-        - "{{ app_dir }}"
-        - "{{ app_dir }}/backend"
-        - "{{ app_dir }}/frontend"
 
-    # Copy application files to EC2
-    - name: Copy backend files
-      synchronize:
-        src: "{{ project_src }}/backend/"
-        dest: "{{ app_dir }}/backend/"
-        mode: push
-        delete: yes  # Remove files on destination that are not on source
-      become: no  # Run as the ansible user, not root
-
-    - name: Copy frontend files
-      synchronize:
-        src: "{{ project_src }}/frontend/"
-        dest: "{{ app_dir }}/frontend/"
-        mode: push
-        delete: yes
-      become: no
-
+    # Copy docker-compose file
     - name: Copy docker-compose file
       copy:
         src: "{{ project_src }}/docker-compose.yml"
@@ -116,7 +103,7 @@
       changed_when: docker_prune.stdout.find('Total reclaimed space') != -1
       ignore_errors: yes
 
-    # Split Docker Compose deployment into smaller steps
+    # Deploy with Docker Compose
     - name: Stop existing containers
       shell: docker-compose down
       args:
@@ -129,18 +116,24 @@
       shell: docker-compose pull
       args:
         chdir: "{{ app_dir }}"
+      environment:
+        DOCKER_HUB_USERNAME: "{{ DOCKER_HUB_USERNAME }}"
+        GIT_COMMIT_HASH: "{{ GIT_COMMIT_HASH }}"
       register: docker_compose_pull
-      async: 600  # Allow 10 minutes for image pulls
-      poll: 15    # Check every 15 seconds
+      async: 600
+      poll: 15
 
     - name: Start Docker Compose services
       shell: docker-compose up -d
       args:
         chdir: "{{ app_dir }}"
+      environment:
+        DOCKER_HUB_USERNAME: "{{ DOCKER_HUB_USERNAME }}"
+        GIT_COMMIT_HASH: "{{ GIT_COMMIT_HASH }}"
       register: docker_compose_up
       changed_when: docker_compose_up.stdout.find('Creating') != -1 or docker_compose_up.stdout.find('Starting') != -1
-      async: 600  # Allow 10 minutes for startup
-      poll: 15    # Check every 15 seconds
+      async: 600
+      poll: 15
 
     - name: Wait for containers to fully start
       pause:
