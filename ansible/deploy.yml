@@ -3,7 +3,7 @@
   hosts: all
   become: yes
   vars:
-    ansible_ssh_timeout: 60
+    ansible_ssh_timeout: 120  # Increased timeout
     app_dir: "/home/ubuntu/app"
     project_src: "{{ playbook_dir }}/.."  # Assumes playbook is in a subdirectory
     
@@ -116,13 +116,36 @@
       changed_when: docker_prune.stdout.find('Total reclaimed space') != -1
       ignore_errors: yes
 
-    # Deploy with Docker Compose
-    - name: Deploy with Docker Compose
-      shell: cd {{ app_dir }} && docker-compose down && docker-compose up -d
+    # Split Docker Compose deployment into smaller steps
+    - name: Stop existing containers
+      shell: docker-compose down
       args:
         chdir: "{{ app_dir }}"
-      register: docker_compose_output
-      changed_when: docker_compose_output.stdout.find('Creating') != -1 or docker_compose_output.stdout.find('Starting') != -1
+      ignore_errors: yes
+      async: 300
+      poll: 10
+
+    - name: Pull Docker images
+      shell: docker-compose pull
+      args:
+        chdir: "{{ app_dir }}"
+      register: docker_compose_pull
+      async: 600  # Allow 10 minutes for image pulls
+      poll: 15    # Check every 15 seconds
+
+    - name: Start Docker Compose services
+      shell: docker-compose up -d
+      args:
+        chdir: "{{ app_dir }}"
+      register: docker_compose_up
+      changed_when: docker_compose_up.stdout.find('Creating') != -1 or docker_compose_up.stdout.find('Starting') != -1
+      async: 600  # Allow 10 minutes for startup
+      poll: 15    # Check every 15 seconds
+
+    - name: Wait for containers to fully start
+      pause:
+        seconds: 10
+      when: docker_compose_up.changed
 
     # Verify deployment
     - name: Check if containers are running
@@ -130,6 +153,9 @@
       register: container_check
       changed_when: false
       ignore_errors: yes
+      retries: 3
+      delay: 5
+      until: container_check.rc == 0 or container_check.attempts == 3
 
     - name: Deployment status
       debug:

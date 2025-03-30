@@ -19,8 +19,8 @@ EXPOSE 5173
 # Set environment variables for production
 ENV NODE_ENV=production
 
-# Build the frontend
-RUN npm run build
+# Build the frontend with increased heap size
+RUN NODE_OPTIONS="--max-old-space-size=1536" npm run build
 
 # Start the frontend 
 CMD ["npm", "run", "preview"]
