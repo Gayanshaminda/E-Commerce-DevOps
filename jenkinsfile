@@ -5,7 +5,7 @@ pipeline {
         TERRAFORM_DIR = 'terraform'
         ANSIBLE_DIR = 'ansible'
         AWS_REGION = 'eu-north-1'
-        EC2_IP = '' // Remove the hardcoded IP
+        EC2_IP = '51.20.34.253'
         WORKSPACE = 'C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\E-Commerce-DevOps-Pipeline'
         // Disable proxy for Docker operations
         NO_PROXY = '*.docker.io,registry-1.docker.io'
@@ -67,10 +67,7 @@ pipeline {
                          accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                          secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
                         bat "wsl terraform init"
-                        script {
-                            def tfOutput = bat(script: 'wsl terraform apply -auto-approve -var=\"region=${AWS_REGION}\"', returnStdout: true).trim()
-                            EC2_IP = bat(script: 'wsl terraform output -raw public_ip', returnStdout: true).trim()
-                        }
+                        bat "wsl terraform apply -auto-approve -var=\"region=${AWS_REGION}\""
                     }
                 }                stage('Ansible Deployment') {
                     steps {
@@ -111,6 +108,7 @@ pipeline {
                             keyFileVariable: 'SSH_KEY',
                             usernameVariable: 'SSH_USER')]) {
                         script {
+<<<<<<< HEAD
                             // Ensure WSL directory exists
                             bat "wsl mkdir -p /home/gayanshaminda2001/ansible"
                             
@@ -129,6 +127,10 @@ pipeline {
                                 wsl ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory.ini deploy.yml \
                                 -vvv
                             """
+=======
+                            def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
+                            bat "wsl ansible-playbook -i inventory.ini deploy.yml -u %SSH_USER% --private-key %SSH_KEY% -e \"ansible_host=${EC2_IP} DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% GIT_COMMIT_HASH=${gitCommitHash}\""
+>>>>>>> parent of b414e37 (ansible and jenkins ip issue fix using copilot)
                         }
                     }
                 }
