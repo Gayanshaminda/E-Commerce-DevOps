@@ -2,36 +2,121 @@ pipeline {
     agent any
     environment {
         ANSIBLE_DIR = 'ansible'
-        EC2_IP = '13.53.111.50'  // Your EC2 IP
+        EC2_IP = '13.53.111.50'
+        NO_PROXY = '*.docker.io,registry-1.docker.io'
     }
+    
     stages {
         stage('Checkout') {
             steps {
                 git branch: 'main', url: 'https://github.com/Gayanshaminda/E-Commerce-DevOps.git'
             }
         }
+        
+        stage('Build and Push Docker Images') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials',
+                         usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
+                        
+                        def gitCommitHash = bat(script: 'git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
+                        
+                        // Configure Docker proxy settings
+                        bat '''
+                            echo {"proxies":{"default":{"httpProxy":"","httpsProxy":"","noProxy":"*.docker.io,registry-1.docker.io"}}} > %USERPROFILE%\\.docker\\config.json
+                        '''
+                        
+                        // Login to Docker Hub securely
+                        bat "echo %DOCKER_HUB_PASSWORD% | docker login -u %DOCKER_HUB_USERNAME% --password-stdin"
+                        
+                        // Build and push frontend
+                        dir('frontend') {
+                            bat "docker build -t %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash} ."
+                            retry(3) {
+                                bat "docker push %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
+                            }
+                        }
+                        
+                        // Build and push backend
+                        dir('backend') {
+                            bat "docker build -t %DOCKER_HUB_USERNAME%/backend:${gitCommitHash} ."
+                            retry(3) {
+                                bat "docker push %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
         stage('Test Ansible Deployment') {
             steps {
                 dir(ANSIBLE_DIR) {
-                    script {
-                        // Create inventory file
-                        writeFile file: 'temp_inventory.ini', text: """[ec2]
-${EC2_IP} ansible_user=ubuntu
+                    withCredentials([
+                        sshUserPrivateKey(credentialsId: 'ec2-ssh-key',
+                                      usernameVariable: 'SSH_USER',
+                                      keyFileVariable: 'SSH_KEY_FILE'),
+                        usernamePassword(credentialsId: 'docker-hub-credentials',
+                                     usernameVariable: 'DOCKER_HUB_USERNAME',
+                                     passwordVariable: 'DOCKER_HUB_PASSWORD')
+                    ]) {
+                        script {
+                            def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
+                            
+                            // Create inventory file
+                            writeFile file: 'temp_inventory.ini', text: """[ec2]
+${EC2_IP} ansible_user=${SSH_USER}
 
 [ec2:vars]
 ansible_python_interpreter=/usr/bin/python3
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 """
-                        // Simplified command without line continuations
-                        bat 'wsl ansible-playbook -i temp_inventory.ini deploy.yml -u ubuntu --private-key /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem -e "DOCKER_HUB_USERNAME=gayanshaminda2001 GIT_COMMIT_HASH=latest" -vvv'
+                            // Run Ansible playbook with proper credentials
+                            def result = bat(
+                                script: """
+                                    wsl ansible-playbook -i temp_inventory.ini deploy.yml \
+                                        -u ${SSH_USER} \
+                                        --private-key ${SSH_KEY_FILE} \
+                                        -e "DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME} GIT_COMMIT_HASH=${gitCommitHash}" \
+                                        -vvv
+                                """,
+                                returnStatus: true
+                            )
+                            
+                            if (result != 0) {
+                                error "Ansible deployment failed with exit code ${result}"
+                            }
+                        }
                     }
                 }
             }
         }
     }
+    
     post {
         always {
-            cleanWs()
+            script {
+                // Clean up Docker
+                bat 'docker logout'
+                
+                // Clean workspace with error handling
+                try {
+                    cleanWs(
+                        deleteDirs: true,
+                        patterns: [
+                            [pattern: '**/.git/**', type: 'EXCLUDE']
+                        ]
+                    )
+                } catch (Exception e) {
+                    echo "Warning: Workspace cleanup failed: ${e.getMessage()}"
+                }
+            }
+        }
+        success {
+            echo 'Deployment completed successfully!'
+        }
+        failure {
+            echo 'Deployment failed!'
         }
     }
 }
