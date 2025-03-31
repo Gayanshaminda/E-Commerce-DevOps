@@ -68,10 +68,9 @@ pipeline {
                         bat "wsl terraform init"
                         bat "wsl terraform apply -auto-approve -var=\"region=${AWS_REGION}\""
                         
-                        // Capture the EC2 IP from Terraform output
+                        // Capture the EC2 IP from Terraform output - fixed command
                         script {
-                            env.EC2_IP = bat(script: 'wsl terraform output -raw public_ip', returnStdout: true).trim()
-                            echo "Terraform created EC2 instance with IP: ${env.EC2_IP}"
+                            env.EC2_IP = bat(script: 'wsl terraform output -raw public_ip', returnStdout: true).trim().readLines().last()
                         }
                     }
                 }
@@ -87,10 +86,16 @@ pipeline {
                          usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                         script {
                             def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
-                            // Use dynamic inventory with the EC2_IP from Terraform
-                            bat "wsl echo '[ec2]\n${env.EC2_IP} ansible_user=%SSH_USER%' > temp_inventory.ini"
-                            bat "wsl echo '[ec2:vars]\nansible_python_interpreter=/usr/bin/python3' >> temp_inventory.ini"
-                            bat "wsl ansible-playbook -i temp_inventory.ini deploy.yml -u %SSH_USER% --private-key %SSH_KEY% -e \"DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% GIT_COMMIT_HASH=${gitCommitHash}\""
+                            
+                            // Create inventory file properly - fixed command syntax
+                            writeFile file: 'temp_inventory.ini', text: """[ec2]
+${env.EC2_IP} ansible_user=${SSH_USER}
+
+[ec2:vars]
+ansible_python_interpreter=/usr/bin/python3
+"""
+                            // Use the inventory file with ansible-playbook
+                            bat "wsl ansible-playbook -i temp_inventory.ini deploy.yml -u ${SSH_USER} --private-key ${SSH_KEY} -e \"DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME} GIT_COMMIT_HASH=${gitCommitHash}\""
                         }
                     }
                 }
