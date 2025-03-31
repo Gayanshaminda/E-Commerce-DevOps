@@ -77,13 +77,19 @@ pipeline {
             }
         }
 
-       stage('Ansible Deployment') {
+
+
+
+      stage('Ansible Deployment') {
     steps {
         dir(ANSIBLE_DIR) {
             withCredentials([
-                sshUserPrivateKey(credentialsId: 'ec2-ssh-key', usernameVariable: 'SSH_USER'),
+                sshUserPrivateKey(credentialsId: 'ec2-ssh-key', 
+                                 usernameVariable: 'SSH_USER', 
+                                 keyFileVariable: 'SSH_KEY_FILE'),
                 usernamePassword(credentialsId: 'docker-hub-credentials',
-                    usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
+                    usernameVariable: 'DOCKER_HUB_USERNAME', 
+                    passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                 script {
                     def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
                     
@@ -94,13 +100,16 @@ ${env.EC2_IP} ansible_user=${SSH_USER}
 [ec2:vars]
 ansible_python_interpreter=/usr/bin/python3
 """
-                    // Use the WSL path directly to the key file
-                    bat "wsl ansible-playbook -i temp_inventory.ini deploy.yml -u ${SSH_USER} --private-key /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem -e \"DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME} GIT_COMMIT_HASH=${gitCommitHash}\""
+                    // Instead of using a hardcoded path, use the SSH_KEY_FILE variable
+                    bat "wsl ansible-playbook -i temp_inventory.ini deploy.yml -u ${SSH_USER} --private-key \${SSH_KEY_FILE} -e \"DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME} GIT_COMMIT_HASH=${gitCommitHash}\""
                 }
             }
         }
     }
 }
+
+
+
 
 
     }
