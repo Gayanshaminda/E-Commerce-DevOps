@@ -17,10 +17,15 @@ pipeline {
         stage('Build Docker Images with Docker Compose') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
-                        usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials',
+                         usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                         def gitCommitHash = bat(script: 'git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
-                        bat "set DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% && set GIT_COMMIT_HASH=${gitCommitHash} && docker-compose -f ${DOCKER_COMPOSE_FILE} build"
+                        
+                        // Create a .env file for Docker Compose
+                        writeFile file: '.env', text: "DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME}\nGIT_COMMIT_HASH=${gitCommitHash}"
+                        
+                        // Use the .env file with docker-compose
+                        bat "docker-compose -f ${DOCKER_COMPOSE_FILE} build"
                     }
                 }
             }
@@ -28,10 +33,14 @@ pipeline {
         stage('Push Docker Images') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
-                        usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
-                        bat "echo %DOCKER_HUB_PASSWORD% | docker login -u %DOCKER_HUB_USERNAME% --password-stdin"
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials',
+                         usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                         def gitCommitHash = bat(script: 'git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
+                        
+                        // Login to Docker Hub
+                        bat "echo %DOCKER_HUB_PASSWORD% | docker login -u %DOCKER_HUB_USERNAME% --password-stdin"
+                        
+                        // Push images (using .env file variables)
                         bat "docker push %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
                         bat "docker push %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
                     }
@@ -41,12 +50,12 @@ pipeline {
         stage('Terraform Infrastructure') {
             steps {
                 dir(TERRAFORM_DIR) {
-                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', 
-                        credentialsId: 'aws-credentials', 
-                        accessKeyVariable: 'AWS_ACCESS_KEY_ID', 
-                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                         credentialsId: 'aws-credentials',
+                         accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                         secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
                         bat "wsl terraform init"
-                        bat "wsl terraform apply -auto-approve -var=\\\"region=${AWS_REGION}\\\""
+                        bat "wsl terraform apply -auto-approve -var=\"region=${AWS_REGION}\""
                     }
                 }
             }
@@ -54,14 +63,14 @@ pipeline {
         stage('Ansible Deployment') {
             steps {
                 dir(ANSIBLE_DIR) {
-                    withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', 
-                        keyFileVariable: 'SSH_KEY', 
-                        usernameVariable: 'SSH_USER'),
-                    usernamePassword(credentialsId: 'docker-hub-credentials', 
-                        usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
+                    withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key',
+                         keyFileVariable: 'SSH_KEY',
+                         usernameVariable: 'SSH_USER'),
+                    usernamePassword(credentialsId: 'docker-hub-credentials',
+                         usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                         script {
                             def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
-                            bat "wsl ansible-playbook -i inventory.ini deploy.yml -u %SSH_USER% --private-key %SSH_KEY% -e \\\"ansible_host=${EC2_IP} DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% GIT_COMMIT_HASH=${gitCommitHash}\\\""
+                            bat "wsl ansible-playbook -i inventory.ini deploy.yml -u %SSH_USER% --private-key %SSH_KEY% -e \"ansible_host=${EC2_IP} DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% GIT_COMMIT_HASH=${gitCommitHash}\""
                         }
                     }
                 }
