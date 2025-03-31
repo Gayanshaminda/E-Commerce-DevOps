@@ -6,8 +6,8 @@ pipeline {
         ANSIBLE_DIR = 'ansible'
         AWS_REGION = 'eu-north-1'
         WORKSPACE = 'C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\E-Commerce-DevOps-Pipeline'
-        // Disable proxy for Docker operations
         NO_PROXY = '*.docker.io,registry-1.docker.io'
+        WSL_SSH_KEY = '/home/gayanshaminda2001/ansible/E-commerece-key-pair.pem'
     }
     stages {
         stage('Checkout') {
@@ -76,46 +76,71 @@ pipeline {
                 }
             }
         }
+        stage('Ansible Deployment') {
+            steps {
+                dir(ANSIBLE_DIR) {
+                    script {
+                        // Create directories if they don't exist
+                        bat '''
+                            if not exist ansible mkdir ansible
+                            wsl mkdir -p /home/gayanshaminda2001/ansible
+                        '''
+                        
+                        // Set proper permissions on existing key
+                        bat '''
+                            wsl chmod 600 /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem
+                            wsl ls -la /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem
+                        '''
 
-
-
-stage('Ansible Deployment') {
-    steps {
-        dir(ANSIBLE_DIR) {
-            withCredentials([
-                sshUserPrivateKey(credentialsId: 'ec2-ssh-key',
-                                  usernameVariable: 'SSH_USER',
-                                  keyFileVariable: 'SSH_KEY_FILE'),
-                usernamePassword(credentialsId: 'docker-hub-credentials',
-                                 usernameVariable: 'DOCKER_HUB_USERNAME',
-                                 passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
-                script {
-                    def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
-                    
-                    // Create inventory file
-                    writeFile file: 'temp_inventory.ini', text: """[ec2]
-${env.EC2_IP} ansible_user=${SSH_USER}
+                        withCredentials([
+                            usernamePassword(credentialsId: 'docker-hub-credentials',
+                                         usernameVariable: 'DOCKER_HUB_USERNAME',
+                                         passwordVariable: 'DOCKER_HUB_PASSWORD')
+                        ]) {
+                            def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
+                            
+                            // Create inventory file
+                            writeFile file: 'temp_inventory.ini', text: """[ec2]
+${env.EC2_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WSL_SSH_KEY}
 
 [ec2:vars]
 ansible_python_interpreter=/usr/bin/python3
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 """
-                    // Use the key file provided by Jenkins credentials
-                    bat "wsl ansible-playbook -i temp_inventory.ini deploy.yml -u ${SSH_USER} --private-key ${SSH_KEY_FILE} -e \"DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME} GIT_COMMIT_HASH=${gitCommitHash}\""
+                            // Run Ansible playbook
+                            def result = bat(
+                                script: "wsl ansible-playbook -i temp_inventory.ini deploy.yml -u ubuntu --private-key ${WSL_SSH_KEY} -e \"DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME} GIT_COMMIT_HASH=${gitCommitHash}\" -vvv",
+                                returnStatus: true
+                            )
+                            
+                            if (result != 0) {
+                                error "Ansible deployment failed with exit code ${result}"
+                            }
+                        }
+                    }
                 }
             }
         }
     }
-}
-
-
-
-
-
-    }
     post {
         always {
-            cleanWs()
-            bat 'docker logout'
+            script {
+                bat 'docker logout'
+                try {
+                    cleanWs(
+                        deleteDirs: true,
+                        patterns: [[pattern: '**/.git/**', type: 'EXCLUDE']]
+                    )
+                } catch (Exception e) {
+                    echo "Warning: Workspace cleanup failed: ${e.getMessage()}"
+                }
+            }
+        }
+        success {
+            echo 'Deployment completed successfully!'
+        }
+        failure {
+            echo 'Deployment failed!'
         }
     }
 }
