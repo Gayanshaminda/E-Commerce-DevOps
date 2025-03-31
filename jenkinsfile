@@ -69,6 +69,33 @@ stage('Terraform Initialize') {
                  secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
                 // Use -upgrade to ensure latest providers
                 bat "wsl terraform init -input=false -upgrade"
+                
+                // Create backend.tf file for S3 state storage if it doesn't exist
+                script {
+                    def backendFileExists = bat(script: 'wsl test -f backend.tf && echo "exists" || echo "not exists"', returnStdout: true).trim().contains("exists")
+                    echo "Backend file exists: ${backendFileExists}"
+                    
+                   if (!backendFileExists) {
+    bat '''
+        wsl bash -c 'cat > backend.tf << EOF
+terraform {
+  backend "s3" {
+    bucket         = "ecommerce-terraform-state-bucket"
+    key            = "terraform/state/ecommerce.tfstate"
+    region         = "eu-north-1"
+    dynamodb_table = "terraform-state-lock"
+    encrypt        = true
+  }
+}
+EOF'
+    '''
+    
+    echo "Created backend.tf file"
+    
+    // Only run backend migration if the file was just created
+    bat "wsl terraform init -force-copy -input=false"
+}
+                }
             }
         }
     }
@@ -76,7 +103,7 @@ stage('Terraform Initialize') {
 
         stage('Terraform Plan') {
             steps {
-                dir(TERRAFORM_dir) {
+                dir(TERRAFORM_DIR) {
                     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                          credentialsId: 'aws-credentials',
                          accessKeyVariable: 'AWS_ACCESS_KEY_ID',
