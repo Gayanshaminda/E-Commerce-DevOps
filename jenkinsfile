@@ -77,11 +77,11 @@ pipeline {
             }
         }
 
-        stage('Ansible Deployment') {
+       stage('Ansible Deployment') {
     steps {
         dir(ANSIBLE_DIR) {
             withCredentials([
-                usernameVariable('SSH_USER', 'ec2-ssh-key'),
+                sshUserPrivateKey(credentialsId: 'ec2-ssh-key', usernameVariable: 'SSH_USER'),
                 usernamePassword(credentialsId: 'docker-hub-credentials',
                     usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                 script {
