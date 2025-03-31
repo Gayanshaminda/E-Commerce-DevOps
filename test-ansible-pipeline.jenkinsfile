@@ -1,0 +1,42 @@
+pipeline {
+    agent any
+    environment {
+        ANSIBLE_DIR = 'ansible'
+        EC2_IP = '13.53.111.50'  // Replace with your EC2 IP
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/Gayanshaminda/E-Commerce-DevOps.git'
+            }
+        }
+        stage('Test Ansible Deployment') {
+            steps {
+                dir(ANSIBLE_DIR) {
+                    script {
+                        // Create inventory file
+                        writeFile file: 'temp_inventory.ini', text: """[ec2]
+${EC2_IP} ansible_user=ubuntu
+
+[ec2:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+"""
+                        // Run ansible-playbook with the WSL key path
+                        bat """
+                            wsl ansible-playbook -i temp_inventory.ini deploy.yml \\
+                            -u ubuntu \\
+                            --private-key /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem \\
+                            -e "DOCKER_HUB_USERNAME=gayanshaminda2001 GIT_COMMIT_HASH=latest"
+                        """
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
