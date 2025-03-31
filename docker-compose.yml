@@ -1,8 +1,8 @@
-version: '3'
+
 services:
   backend:
     build:
-      context: ./backend
+      context: ./backend  # Path to backend Dockerfile
       dockerfile: Dockerfile
     image: "${DOCKER_HUB_USERNAME}/backend:${GIT_COMMIT_HASH}"
     container_name: backend_container
@@ -16,7 +16,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: ./frontend  # Path to frontend Dockerfile
       dockerfile: Dockerfile
     image: "${DOCKER_HUB_USERNAME}/frontend:${GIT_COMMIT_HASH}"
     container_name: frontend_container
