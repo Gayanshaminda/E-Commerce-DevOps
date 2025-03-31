@@ -1,6 +1,9 @@
-
+version: '3'
 services:
   backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     image: "${DOCKER_HUB_USERNAME}/backend:${GIT_COMMIT_HASH}"
     container_name: backend_container
     ports:
@@ -12,6 +15,9 @@ services:
     restart: unless-stopped
 
   frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     image: "${DOCKER_HUB_USERNAME}/frontend:${GIT_COMMIT_HASH}"
     container_name: frontend_container
     ports:
