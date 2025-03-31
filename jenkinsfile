@@ -8,6 +8,7 @@ pipeline {
         WORKSPACE = 'C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\E-Commerce-DevOps-Pipeline'
         NO_PROXY = '*.docker.io,registry-1.docker.io'
         WSL_SSH_KEY = '/home/gayanshaminda2001/ansible/E-commerece-key-pair.pem'
+        TERRAFORM_PARALLELISM = '10' // Parallel operations for Terraform
     }
     stages {
         stage('Checkout') {
@@ -58,28 +59,112 @@ pipeline {
                 }
             }
         }
-        stage('Terraform Infrastructure') {
+
+        stage('Terraform Initialize') {
             steps {
                 dir(TERRAFORM_DIR) {
                     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                          credentialsId: 'aws-credentials',
                          accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                          secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
-                        bat "wsl terraform init"
-                        bat "wsl terraform apply -auto-approve -var=\"region=${AWS_REGION}\""
-                        
-                        // Capture the EC2 IP from Terraform output - fixed command
+                        // Use -upgrade to ensure latest providers
+                        bat "wsl terraform init -input=false -upgrade"
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                dir(TERRAFORM_DIR) {
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                         credentialsId: 'aws-credentials',
+                         accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                         secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
                         script {
-                            env.EC2_IP = bat(script: 'wsl terraform output -raw public_ip', returnStdout: true).trim().readLines().last()
+                            // Check if output file exists using Windows-compatible commands
+                            def outputExists = bat(script: 'wsl terraform output -json > nul 2>&1 && echo exists || echo notexists', returnStdout: true).trim().contains("exists")
+                            
+                            if (outputExists) {
+                                // Try to get existing IP to check if infrastructure exists
+                                try {
+                                    env.EXISTING_EC2_IP = bat(script: 'wsl terraform output -raw public_ip 2> nul || echo ""', returnStdout: true).trim().readLines().last()
+                                    echo "Found existing infrastructure with IP: ${env.EXISTING_EC2_IP}"
+                                } catch (Exception e) {
+                                    env.EXISTING_EC2_IP = ""
+                                    echo "No existing infrastructure detected"
+                                }
+                            }
+                            
+                            // Run terraform plan with detailed exit code to automatically detect changes
+                            def planExitCode = bat(script: "wsl terraform plan -detailed-exitcode -var=\"region=${AWS_REGION}\" -out=tfplan", returnStatus: true)
+                            // Exit code 0 = No changes, 1 = Error, 2 = Changes present
+                            env.TERRAFORM_CHANGES = planExitCode == 2 ? 'true' : 'false'
+                            
+                            if (env.TERRAFORM_CHANGES == 'true') {
+                                echo "Infrastructure changes detected - will apply changes"
+                            } else {
+                                echo "No infrastructure changes detected - will skip apply stage"
+                            }
                         }
                     }
                 }
             }
         }
+        
+        stage('Terraform Apply') {
+            when {
+                expression { return env.TERRAFORM_CHANGES == 'true' }
+            }
+            steps {
+                dir(TERRAFORM_DIR) {
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                         credentialsId: 'aws-credentials',
+                         accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                         secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                        // Apply with parallelism for faster resource creation
+                        bat "wsl terraform apply -parallelism=${TERRAFORM_PARALLELISM} -input=false tfplan"
+                        
+                        // Capture the EC2 IP from Terraform output
+                        script {
+                            env.EC2_IP = bat(script: 'wsl terraform output -raw public_ip', returnStdout: true).trim().readLines().last()
+                            // Add a small wait for EC2 instance to initialize (reduces SSH connection issues)
+                            echo "Waiting 30 seconds for EC2 instance to initialize..."
+                            sleep(30)
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Get Existing Infrastructure') {
+            when {
+                expression { return env.TERRAFORM_CHANGES == 'false' && env.EXISTING_EC2_IP?.trim() }
+            }
+            steps {
+                dir(TERRAFORM_DIR) {
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                         credentialsId: 'aws-credentials',
+                         accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                         secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                        script {
+                            env.EC2_IP = env.EXISTING_EC2_IP
+                            echo "Using existing infrastructure with IP: ${env.EC2_IP}"
+                        }
+                    }
+                }
+            }
+        }
+        
         stage('Ansible Deployment') {
             steps {
                 dir(ANSIBLE_DIR) {
                     script {
+                        // Verify EC2_IP is set
+                        if (!env.EC2_IP?.trim()) {
+                            error "EC2 IP address not set. Cannot proceed with deployment."
+                        }
+                        
                         // Create directories if they don't exist
                         bat '''
                             if not exist ansible mkdir ansible
@@ -105,7 +190,7 @@ ${env.EC2_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WSL_SSH_KEY}
 
 [ec2:vars]
 ansible_python_interpreter=/usr/bin/python3
-ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ConnectTimeout=60'
 """
                             // Run Ansible playbook
                             def result = bat(
@@ -138,6 +223,7 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
         }
         success {
             echo 'Deployment completed successfully!'
+            echo "Application deployed to: http://${env.EC2_IP}"
         }
         failure {
             echo 'Deployment failed!'
