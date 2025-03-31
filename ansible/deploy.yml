@@ -3,25 +3,11 @@
   hosts: all
   become: yes
   vars:
-    ansible_ssh_timeout: 300  # Increased timeout
-    ansible_connection_retries: 10  # Add retry attempts
+    ansible_ssh_timeout: 120  # Increased timeout
     app_dir: "/home/ubuntu/app"
     project_src: "{{ playbook_dir }}/.."  # Assumes playbook is in ansible/
 
   pre_tasks:
-    - name: Wait for SSH connection
-      wait_for:
-        host: "{{ ansible_host }}"
-        port: 22
-        timeout: 300
-        sleep: 10
-        search_regex: OpenSSH
-      delegate_to: localhost
-      register: ssh_connection_test
-      retries: 30
-      delay: 10
-      until: ssh_connection_test is success
-
     - name: Check if Docker is already installed
       command: which docker
       register: docker_check
