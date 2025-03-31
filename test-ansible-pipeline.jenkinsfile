@@ -2,7 +2,7 @@ pipeline {
     agent any
     environment {
         ANSIBLE_DIR = 'ansible'
-        EC2_IP = '13.53.111.50'  // Replace with your EC2 IP
+        EC2_IP = '13.53.111.50'  // Your EC2 IP
     }
     stages {
         stage('Checkout') {
@@ -22,13 +22,8 @@ ${EC2_IP} ansible_user=ubuntu
 ansible_python_interpreter=/usr/bin/python3
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 """
-                        // Run ansible-playbook with the WSL key path
-                        bat """
-                            wsl ansible-playbook -i temp_inventory.ini deploy.yml \\
-                            -u ubuntu \\
-                            --private-key /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem \\
-                            -e "DOCKER_HUB_USERNAME=gayanshaminda2001 GIT_COMMIT_HASH=latest"
-                        """
+                        // Simplified command without line continuations
+                        bat 'wsl ansible-playbook -i temp_inventory.ini deploy.yml -u ubuntu --private-key /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem -e "DOCKER_HUB_USERNAME=gayanshaminda2001 GIT_COMMIT_HASH=latest" -vvv'
                     }
                 }
             }
