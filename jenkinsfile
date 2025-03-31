@@ -72,6 +72,35 @@ pipeline {
                             EC2_IP = bat(script: 'wsl terraform output -raw public_ip', returnStdout: true).trim()
                         }
                     }
+                }                stage('Ansible Deployment') {
+                    steps {
+                        dir(ANSIBLE_DIR) {
+                            withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key',
+                                    keyFileVariable: 'SSH_KEY',
+                                    usernameVariable: 'SSH_USER')]) {
+                                script {
+                                    // Ensure WSL directory exists
+                                    bat "wsl mkdir -p /home/gayanshaminda2001/ansible"
+                                    
+                                    // Copy SSH key to correct location in WSL
+                                    bat """
+                                        wsl bash -c 'cat > /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem' << 'EOL'
+                                        %SSH_KEY%
+                                        EOL
+                                    """
+                                    
+                                    // Set correct permissions
+                                    bat "wsl chmod 600 /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem"
+                                    
+                                    // Run Ansible playbook
+                                    bat """
+                                        wsl ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory.ini deploy.yml \
+                                        -vvv
+                                    """
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
