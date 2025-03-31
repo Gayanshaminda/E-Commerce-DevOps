@@ -4,6 +4,7 @@ pipeline {
         ANSIBLE_DIR = 'ansible'
         EC2_IP = '13.53.111.50'
         NO_PROXY = '*.docker.io,registry-1.docker.io'
+        WSL_SSH_KEY = '/home/gayanshaminda2001/ansible/E-commerece-key-pair.pem'
     }
     
     stages {
@@ -49,13 +50,26 @@ pipeline {
             }
         }
         
+        stage('Prepare SSH Key') {
+            steps {
+                script {
+                    // Ensure SSH key directory exists
+                    bat 'mkdir -p ansible'
+                    
+                    // Write SSH key from Jenkins credentials
+                    withCredentials([file(credentialsId: 'ec2-ssh-key-file', variable: 'SSH_KEY')]) {
+                        bat "copy /Y \"${SSH_KEY}\" ${WSL_SSH_KEY}"
+                        // Set correct permissions in WSL
+                        bat "wsl chmod 600 ${WSL_SSH_KEY}"
+                    }
+                }
+            }
+        }
+        
         stage('Test Ansible Deployment') {
             steps {
                 dir(ANSIBLE_DIR) {
                     withCredentials([
-                        sshUserPrivateKey(credentialsId: 'ec2-ssh-key',
-                                      usernameVariable: 'SSH_USER',
-                                      keyFileVariable: 'SSH_KEY_FILE'),
                         usernamePassword(credentialsId: 'docker-hub-credentials',
                                      usernameVariable: 'DOCKER_HUB_USERNAME',
                                      passwordVariable: 'DOCKER_HUB_PASSWORD')
@@ -63,20 +77,20 @@ pipeline {
                         script {
                             def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
                             
-                            // Create inventory file
+                            // Create inventory file with correct WSL SSH key path
                             writeFile file: 'temp_inventory.ini', text: """[ec2]
-${EC2_IP} ansible_user=${SSH_USER}
+${EC2_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WSL_SSH_KEY}
 
 [ec2:vars]
 ansible_python_interpreter=/usr/bin/python3
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 """
-                            // Run Ansible playbook with proper credentials
+                            // Run Ansible playbook with WSL key path
                             def result = bat(
                                 script: """
                                     wsl ansible-playbook -i temp_inventory.ini deploy.yml \
-                                        -u ${SSH_USER} \
-                                        --private-key ${SSH_KEY_FILE} \
+                                        -u ubuntu \
+                                        --private-key ${WSL_SSH_KEY} \
                                         -e "DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME} GIT_COMMIT_HASH=${gitCommitHash}" \
                                         -vvv
                                 """,
@@ -96,10 +110,9 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
     post {
         always {
             script {
-                // Clean up Docker
+                // Clean up Docker and SSH key
                 bat 'docker logout'
                 
-                // Clean workspace with error handling
                 try {
                     cleanWs(
                         deleteDirs: true,
