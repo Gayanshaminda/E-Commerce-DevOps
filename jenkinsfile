@@ -20,7 +20,7 @@ pipeline {
                     withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
                         usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                         def gitCommitHash = bat(script: 'git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
-                        bat "set DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% && set GIT_COMMIT_HASH=${gitCommitHash} && docker-compose -f ${DOCKER_COMPOSE_FILE} build --no-cache"
+                        bat "set DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% && set GIT_COMMIT_HASH=${gitCommitHash} && docker-compose -f ${DOCKER_COMPOSE_FILE} build"
                     }
                 }
             }
