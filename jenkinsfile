@@ -5,7 +5,6 @@ pipeline {
         TERRAFORM_DIR = 'terraform'
         ANSIBLE_DIR = 'ansible'
         AWS_REGION = 'eu-north-1'
-        EC2_IP = '51.20.34.253'
         WORKSPACE = 'C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\E-Commerce-DevOps-Pipeline'
         // Disable proxy for Docker operations
         NO_PROXY = '*.docker.io,registry-1.docker.io'
@@ -68,6 +67,12 @@ pipeline {
                          secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
                         bat "wsl terraform init"
                         bat "wsl terraform apply -auto-approve -var=\"region=${AWS_REGION}\""
+                        
+                        // Capture the EC2 IP from Terraform output
+                        script {
+                            env.EC2_IP = bat(script: 'wsl terraform output -raw public_ip', returnStdout: true).trim()
+                            echo "Terraform created EC2 instance with IP: ${env.EC2_IP}"
+                        }
                     }
                 }
             }
@@ -82,7 +87,10 @@ pipeline {
                          usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                         script {
                             def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
-                            bat "wsl ansible-playbook -i inventory.ini deploy.yml -u %SSH_USER% --private-key %SSH_KEY% -e \"ansible_host=${EC2_IP} DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% GIT_COMMIT_HASH=${gitCommitHash}\""
+                            // Use dynamic inventory with the EC2_IP from Terraform
+                            bat "wsl echo '[ec2]\n${env.EC2_IP} ansible_user=%SSH_USER%' > temp_inventory.ini"
+                            bat "wsl echo '[ec2:vars]\nansible_python_interpreter=/usr/bin/python3' >> temp_inventory.ini"
+                            bat "wsl ansible-playbook -i temp_inventory.ini deploy.yml -u %SSH_USER% --private-key %SSH_KEY% -e \"DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% GIT_COMMIT_HASH=${gitCommitHash}\""
                         }
                     }
                 }
