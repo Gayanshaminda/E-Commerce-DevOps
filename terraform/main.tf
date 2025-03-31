@@ -1,5 +1,12 @@
+
+variable "region" {
+  description = "AWS region to deploy resources"
+  type        = string
+  default     = "eu-north-1"
+}
+
 provider "aws" {
-  region = "eu-north-1"
+  region = var.region
 }
 
 variable "environment" {
