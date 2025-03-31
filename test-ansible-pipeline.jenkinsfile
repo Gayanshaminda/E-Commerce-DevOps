@@ -53,15 +53,22 @@ pipeline {
         stage('Prepare SSH Key') {
             steps {
                 script {
-                    // Ensure SSH key directory exists
-                    bat 'mkdir -p ansible'
+                    // Create directories if they don't exist
+                    bat '''
+                        if not exist ansible mkdir ansible
+                        wsl mkdir -p /home/gayanshaminda2001/ansible
+                    '''
                     
-                    // Write SSH key from Jenkins credentials
-                    withCredentials([file(credentialsId: 'ec2-ssh-key-file', variable: 'SSH_KEY')]) {
-                        bat "copy /Y \"${SSH_KEY}\" ${WSL_SSH_KEY}"
-                        // Set correct permissions in WSL
-                        bat "wsl chmod 600 ${WSL_SSH_KEY}"
-                    }
+                    // Set proper permissions on existing key
+                    bat '''
+                        wsl chmod 600 /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem
+                        wsl ls -la /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem
+                    '''
+                    
+                    // Verify SSH connection
+                    bat '''
+                        wsl ssh -o StrictHostKeyChecking=no -i /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem ubuntu@13.53.111.50 "echo SSH connection successful"
+                    '''
                 }
             }
         }
@@ -77,7 +84,7 @@ pipeline {
                         script {
                             def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
                             
-                            // Create inventory file with correct WSL SSH key path
+                            // Create inventory file
                             writeFile file: 'temp_inventory.ini', text: """[ec2]
 ${EC2_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WSL_SSH_KEY}
 
@@ -85,13 +92,13 @@ ${EC2_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WSL_SSH_KEY}
 ansible_python_interpreter=/usr/bin/python3
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 """
-                            // Run Ansible playbook with WSL key path
+                            // Run Ansible playbook
                             def result = bat(
                                 script: """
-                                    wsl ansible-playbook -i temp_inventory.ini deploy.yml \
-                                        -u ubuntu \
-                                        --private-key ${WSL_SSH_KEY} \
-                                        -e "DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME} GIT_COMMIT_HASH=${gitCommitHash}" \
+                                    wsl ansible-playbook -i temp_inventory.ini deploy.yml \\
+                                        -u ubuntu \\
+                                        --private-key ${WSL_SSH_KEY} \\
+                                        -e "DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME} GIT_COMMIT_HASH=${gitCommitHash}" \\
                                         -vvv
                                 """,
                                 returnStatus: true
