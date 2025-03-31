@@ -75,24 +75,26 @@ stage('Terraform Initialize') {
                     def backendFileExists = bat(script: 'wsl test -f backend.tf && echo "exists" || echo "not exists"', returnStdout: true).trim().contains("exists")
                     echo "Backend file exists: ${backendFileExists}"
                     
-                    if (!backendFileExists) {
-                        bat '''
-                            echo 'terraform {' > backend.tf
-                            echo '  backend "s3" {' >> backend.tf
-                            echo '    bucket         = "ecommerce-terraform-state-bucket"' >> backend.tf
-                            echo '    key            = "terraform/state/ecommerce.tfstate"' >> backend.tf
-                            echo '    region         = "eu-north-1"' >> backend.tf
-                            echo '    dynamodb_table = "terraform-state-lock"' >> backend.tf
-                            echo '    encrypt        = true' >> backend.tf
-                            echo '  }' >> backend.tf
-                            echo '}' >> backend.tf
-                        '''
-                        
-                        echo "Created backend.tf file"
-                        
-                        // Only run backend migration if the file was just created
-                        bat "wsl terraform init -force-copy -input=false"
-                    }
+                   if (!backendFileExists) {
+    bat '''
+        wsl bash -c 'cat > backend.tf << EOF
+terraform {
+  backend "s3" {
+    bucket         = "ecommerce-terraform-state-bucket"
+    key            = "terraform/state/ecommerce.tfstate"
+    region         = "eu-north-1"
+    dynamodb_table = "terraform-state-lock"
+    encrypt        = true
+  }
+}
+EOF'
+    '''
+    
+    echo "Created backend.tf file"
+    
+    // Only run backend migration if the file was just created
+    bat "wsl terraform init -force-copy -input=false"
+}
                 }
             }
         }
