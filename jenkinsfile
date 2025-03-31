@@ -79,25 +79,21 @@ pipeline {
             steps {
                 dir(ANSIBLE_DIR) {
                     withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key',
-                            keyFileVariable: 'SSH_KEY',
-                            usernameVariable: 'SSH_USER')]) {
+                         keyFileVariable: 'SSH_KEY',
+                         usernameVariable: 'SSH_USER'),
+                    usernamePassword(credentialsId: 'docker-hub-credentials',
+                         usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                         script {
-                            // Ensure WSL directory exists
-                            bat "wsl mkdir -p /home/gayanshaminda2001/ansible"
+                            // Add debug steps
+                            bat "wsl chmod 600 ${SSH_KEY}"
+                            bat "wsl ssh-keyscan -H ${EC2_IP} >> ~/.ssh/known_hosts"
                             
-                            // Copy SSH key to correct location in WSL
+                            def gitCommitHash = bat(script: 'wsl git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
                             bat """
-                                wsl bash -c 'cat > /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem' << 'EOL'
-                                %SSH_KEY%
-                                EOL
-                            """
-                            
-                            // Set correct permissions
-                            bat "wsl chmod 600 /home/gayanshaminda2001/ansible/E-commerece-key-pair.pem"
-                            
-                            // Run Ansible playbook
-                            bat """
-                                wsl ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory.ini deploy.yml \
+                                wsl ansible-playbook -i inventory.ini deploy.yml \
+                                -u %SSH_USER% \
+                                --private-key %SSH_KEY% \
+                                -e "ansible_host=${EC2_IP} DOCKER_HUB_USERNAME=%DOCKER_HUB_USERNAME% GIT_COMMIT_HASH=${gitCommitHash}" \
                                 -vvv
                             """
                         }
