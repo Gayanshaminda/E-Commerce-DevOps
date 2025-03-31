@@ -7,6 +7,8 @@ pipeline {
         AWS_REGION = 'eu-north-1'
         EC2_IP = '51.20.34.253'
         WORKSPACE = 'C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\E-Commerce-DevOps-Pipeline'
+        // Disable proxy for Docker operations
+        NO_PROXY = '*.docker.io,registry-1.docker.io'
     }
     stages {
         stage('Checkout') {
@@ -37,12 +39,22 @@ pipeline {
                          usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
                         def gitCommitHash = bat(script: 'git rev-parse --short HEAD', returnStdout: true).trim().readLines().last()
                         
+                        // Configure Docker to bypass proxy for Docker Hub
+                        bat '''
+                            echo {"proxies":{"default":{"httpProxy":"","httpsProxy":"","noProxy":"*.docker.io,registry-1.docker.io"}}} > %USERPROFILE%\\.docker\\config.json
+                        '''
+                        
                         // Login to Docker Hub
                         bat "echo %DOCKER_HUB_PASSWORD% | docker login -u %DOCKER_HUB_USERNAME% --password-stdin"
                         
-                        // Push images (using .env file variables)
-                        bat "docker push %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
-                        bat "docker push %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
+                        // Push images with retry mechanism
+                        retry(3) {
+                            bat "docker push %DOCKER_HUB_USERNAME%/frontend:${gitCommitHash}"
+                        }
+                        
+                        retry(3) {
+                            bat "docker push %DOCKER_HUB_USERNAME%/backend:${gitCommitHash}"
+                        }
                     }
                 }
             }
