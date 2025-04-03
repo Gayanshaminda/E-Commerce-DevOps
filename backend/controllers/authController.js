@@ -19,18 +19,19 @@ const storeRefreshToken = async(userId, refreshToken) => {
 }
 
 const setCookies = (res, accessToken, refreshToken) => {
-    res.cookie("accessToken", accessToken, {
-        httpOnly: true, // prevent xss attacks, cross site scripting attack
-        secure:process.env.NODE_ENV === "production",
-        sameSite: "strict", // prevent CSRF attack, cross-site request frogery attack
-        maxAge: 15 * 60 * 1000, // 15 minutes
-    });
-    res.cookie("refreshToken", refreshToken, {
-        httpOnly: true, // prevent xss attacks, cross site scripting attack
-        secure:process.env.NODE_ENV === "production",
-        sameSite: "strict", // prevent CSRF attack, cross-site request frogery attack
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    const cookieOptions = {
+        httpOnly: true,
+        sameSite: 'lax',
+        maxAge: 15 * 60 * 1000, // 15 minutes for access token
+    };
+
+    const refreshCookieOptions = {
+        ...cookieOptions,
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days for refresh token
+    };
+
+    res.cookie("accessToken", accessToken, cookieOptions);
+    res.cookie("refreshToken", refreshToken, refreshCookieOptions);
 };
 
 export const signup = async(req, res) => {
