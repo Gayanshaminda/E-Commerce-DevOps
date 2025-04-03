@@ -1,5 +1,5 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
     plugins: [react()],
@@ -8,10 +8,10 @@ export default defineConfig({
         port: 5173,
         proxy: {
             "/api": {
-                target: "https://e607-203-189-184-48.ngrok-free.app", // Use your ngrok public URL
+                target: "http://backend_container:5000",
                 changeOrigin: true,
-                secure: false, // Disable SSL verification if using HTTP
-                rewrite: (path) => path // Keep the original path
+                secure: false,
+                rewrite: (path) => path
             }
         }
     },
@@ -22,4 +22,4 @@ export default defineConfig({
     build: {
         sourcemap: true
     }
-});
+})
